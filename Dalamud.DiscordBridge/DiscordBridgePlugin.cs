@@ -248,9 +248,9 @@ namespace Dalamud.DiscordBridge
             if (!disposing) return;
 
             this.DiscordBridgeProvider.Dispose();
-            
-            this.Discord.Dispose();
 
+            Task.Run(() => this.Discord.Dispose());
+            
             this.commandManager.Dispose();
 
             Service.Interface.UiBuilder.OpenConfigUi -= this.OpenConfigUi;

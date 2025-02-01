@@ -1,10 +1,11 @@
 {
-  "Author": "goat, modded by Franz",
+  "Author": "Franz (modded by Eikyu)",
   "Name": "Discord Chat Bridge",
-  "Description": "This plugin allows you to receive your chat messages via Discord.",
-  "InternalName": "Dalamud.DiscordBridge",
-  "RepoUrl": "https://github.com/reiichi001/Dalamud.DiscordBridge",
+  "Description": "这个插件允许你在Discord中收发游戏内消息。",
+  "InternalName": "Dalamud.DiscordBridgeFork",
+  "RepoUrl": "https://github.com/eikyu721/Dalamud.DiscordBridge/tree/cn_fork",
   "Tags": [ "discord", "chat" ],
-  "Punchline": "Receive your chat messages via Discord.",
-  "Changelog": "Removed bot stop/start on logout/login events. It seems this was causing some issues.\n\nThe plugin will also now cache LocalPlayer on every Framework ticket instead of only on Login events. That should help with LocalPlayer resolutions showing up as null when they shouldn't be."
+  "AssemblyVersion": "1.5.0.4",
+  "Punchline": "允许你在Discord中收发游戏内消息。",
+  "Changelog": "新增了从Discord向游戏发送消息的功能，支持使用代理进行连接。"
 }

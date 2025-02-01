@@ -32,6 +32,10 @@ namespace Dalamud.DiscordBridge
         public bool ForceDefaultNameAvatar { get; set; } = false;
         public bool ForceEmbedFallbackMode { get; set; } = false;
         public bool SenderInMessage { get; set; } = false;
+
+        public bool UseProxy { get; set; } = true;
+        public bool UseSystemProxy { get; set; } = true;
+        public string ProxyAddress { get; set; } = "";
         
 
         public void Initialize(IDalamudPluginInterface pluginInterface)

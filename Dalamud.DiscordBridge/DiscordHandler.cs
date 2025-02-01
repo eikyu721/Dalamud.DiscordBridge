@@ -4,9 +4,12 @@ using System.Linq;
 using System.Threading.Tasks;
 using Dalamud.DiscordBridge.Model;
 using Dalamud.DiscordBridge.XivApi;
+using Dalamud.DiscordBridgeFork.API;
+using Dalamud.DiscordBridgeFork.Model;
 using Dalamud.Game.Text;
 using Dalamud.Plugin.Services;
 using Discord;
+using Discord.Rest;
 using Discord.Webhook;
 using Discord.WebSocket;
 using Lumina.Text;
@@ -28,7 +31,7 @@ namespace Dalamud.DiscordBridge
         public bool IsConnected => this.socketClient.ConnectionState == ConnectionState.Connected;
         public ulong UserId => this.socketClient.CurrentUser.Id;
 
-        private static readonly ConcurrentDictionary<string, LodestoneCharacter> CachedResponses = new();
+        private static readonly ConcurrentDictionary<string, LodestoneCNPlayer> CachedResponses = new();
 
         /// <summary>
         /// Defines if the bot has connected and verified that it has the correct permissions
@@ -89,7 +92,7 @@ namespace Dalamud.DiscordBridge
         /// </summary>
         public readonly DiscordMessageQueue MessageQueue;
 
-        private LodestoneClient lodestoneClient;
+        private LodestoneCN lodestoneClient;
 
         public DiscordHandler(DiscordBridgePlugin plugin)
         {
@@ -104,6 +107,8 @@ namespace Dalamud.DiscordBridge
             {
                 MessageCacheSize = 20, // hold onto the last 20 messages per channel in cache for duplicate checks
                 GatewayIntents = GatewayIntents.AllUnprivileged | GatewayIntents.GuildMessages | GatewayIntents.GuildWebhooks | GatewayIntents.MessageContent,
+                WebSocketProvider = DiscordWebSocketProvider.Instance,
+                RestClientProvider = DiscordRsetClientProvider.Instance
             });
             Logger.Debug("AFTER DiscordSocketClient");
             this.socketClient.Ready += SocketClientOnReady;
@@ -135,7 +140,7 @@ namespace Dalamud.DiscordBridge
 
             this.MessageQueue.Start();
 
-            lodestoneClient = await LodestoneClient.GetClientAsync();
+            lodestoneClient = new LodestoneCN();
 
             Logger.Debug("DiscordHandler START!!");
         }
@@ -1278,11 +1283,11 @@ namespace Dalamud.DiscordBridge
                             Logger.Debug($"Sender Name was {senderName}");
                             doSearch = false;
                         }
-                        else if (!senderName.Contains(' '))
-                        {
-                            Logger.Debug($"Sender Name invalid: {senderName}");
-                            doSearch = false;
-                        }
+                        //else if (!senderName.Contains(' '))
+                        //{
+                        //    Logger.Debug($"Sender Name invalid: {senderName}");
+                        //    doSearch = false;
+                        //}
 
 
                         if (doSearch)
@@ -1290,32 +1295,34 @@ namespace Dalamud.DiscordBridge
                             var playerCacheName = $"{senderName}＠{senderWorld}";
                             Logger.Debug($"Searching for {playerCacheName}");
                             
-                            if (CachedResponses.TryGetValue(playerCacheName, out LodestoneCharacter lschar))
+                            if (CachedResponses.TryGetValue(playerCacheName, out LodestoneCNPlayer lschar))
                             {
-                                Logger.Debug($"Retrived cached data for {lschar.Name} {lschar.Avatar}");
-                                avatarUrl = lschar.Avatar.ToString();
+                                Logger.Debug($"Retrived cached data for {lschar.Character_Name} {lschar.Avatar}");
+                                if (!string.IsNullOrEmpty(lschar.Avatar))
+                                {
+                                    avatarUrl = lschar.Avatar;
+                                }
                             }
                             else
                             {
                                 Logger.Debug($"Searching lodestone for {playerCacheName}");
-
-                                var searchPage = await lodestoneClient.SearchCharacter(new CharacterSearchQuery
+                                
+                                lschar = await lodestoneClient.SearchPlayer(
+                                    senderName,
+                                    senderWorld
+                                );
+                                if (lschar == null)
                                 {
-                                    CharacterName = senderName,
-                                    World = senderWorld,
-                                });
-
-                                var matchingEntry = searchPage.Results.FirstOrDefault(result => result.Name == senderName);
-                                if (matchingEntry == null)
-                                {
+                                    Logger.Debug($"No data found for {playerCacheName}");
                                     break;
                                 }
-                                
-                                lschar = await matchingEntry.GetCharacter();
 
                                 CachedResponses.TryAdd(playerCacheName, lschar);
-                                Logger.Debug($"Adding cached data for {lschar.Name} {lschar.Avatar}");
-                                avatarUrl = lschar.Avatar.ToString();
+                                Logger.Debug($"Adding cached data for {lschar.Character_Name} {lschar.Avatar}");
+                                if (!string.IsNullOrEmpty(lschar.Avatar))
+                                {
+                                    avatarUrl = lschar.Avatar;
+                                }
                             }
 
                             // avatarUrl = (await XivApiClient.GetCharacterSearch(senderName, senderWorld)).AvatarUrl;
@@ -1542,7 +1549,10 @@ namespace Dalamud.DiscordBridge
 
                 Logger.Verbose("Webhook for {0} OK!! {1}", channel.Id, hook.Id);
 
-                return new DiscordWebhookClient(hook);
+                return new DiscordWebhookClient(hook.Id, hook.Token, new DiscordRestConfig
+                {
+                    RestClientProvider = DiscordRsetClientProvider.Instance
+                });
             }
 
             throw new ArgumentNullException(nameof(channel));
@@ -1562,6 +1572,7 @@ namespace Dalamud.DiscordBridge
                 this.MessageQueue?.Stop();
                 this.socketClient?.LogoutAsync().GetAwaiter().GetResult();
                 this.socketClient?.Dispose();
+                this.lodestoneClient.Dispose();
             }
         }
     }

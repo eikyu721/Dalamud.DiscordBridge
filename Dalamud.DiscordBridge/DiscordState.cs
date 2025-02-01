@@ -4,6 +4,7 @@
     {
         None,
         Ready,
-        TokenInvalid
+        TokenInvalid,
+        BadNetwork
     }
 }
