@@ -60,7 +60,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="Dalamud.DiscordBridge.json">
+    <None Update="Dalamud.DiscordBridgeFork.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
   </ItemGroup>

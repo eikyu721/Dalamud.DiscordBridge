@@ -7,5 +7,5 @@
   "Tags": [ "discord", "chat" ],
   "AssemblyVersion": "1.5.0.4",
   "Punchline": "允许你在Discord中收发游戏内消息。",
-  "Changelog": "新增了从Discord向游戏发送消息的功能，支持使用代理进行连接。"
+  "Changelog": "新增了从Discord向游戏发送消息的功能，支持使用代理进行连接，支持国服石之家头像获取。"
 }
