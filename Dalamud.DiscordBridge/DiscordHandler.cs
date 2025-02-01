@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Linq;
 using System.Threading.Tasks;
 using Dalamud.DiscordBridge.Model;
+using Dalamud.DiscordBridge.XivApi;
 using Dalamud.Game.Text;
 using Dalamud.Plugin.Services;
 using Discord;
@@ -198,6 +199,87 @@ namespace Dalamud.DiscordBridge
 
             try
             {
+                if (args[0] == this.plugin.Config.DiscordBotPrefix + "send" && await EnsureOwner(message.Author, message.Channel))
+                {
+                    // Are there parameters?
+                    if (args.Length == 1)
+                    {
+                        await SendGenericEmbed(message.Channel,
+                            $"要使用此功能，你需要指定对话内容。",
+                            "Error", EmbedColorError);
+
+                        return;
+                    }
+                    string sendMsg = string.Join(" ", args.Skip(1));
+                    //判断arg1不是任何channel，则补充默认channel
+                    this.plugin.Config.ChannelDefaultKindConfigs.TryGetValue(message.Channel.Id, out var config);
+                    if (config != null)
+                    {
+                        string buildNewMsg = "";
+                        if (!args[1].StartsWith("/"))
+                        {
+                            buildNewMsg = $"/{config.ChatType.GetSlug()}";
+                            if (config.ChatType == XivChatType.TellOutgoing)
+                            {
+                                buildNewMsg = $"{buildNewMsg} {config.TellTargetStr}";
+                            }
+                        }
+                        sendMsg = $"{buildNewMsg} {sendMsg}";
+                    }
+                    else if (!this.plugin.Config.ChannelDefaultKindConfigNotice.TryGetValue(message.Channel.Id, out var notice) || !notice)
+                    {
+                        await SendGenericEmbed(message.Channel,
+                            $"此Discord频道没有设置默认消息发送的聊天类型。请使用 ``{this.plugin.Config.DiscordBotPrefix}setsendkind <kind>`` 命令设置默认发送的聊天类型。\n没有默认类型时，请小心发送，慎防错频。\n这条消息只会显示一次。",
+                            "警告", EmbedColorError);
+                        this.plugin.Config.ChannelDefaultKindConfigNotice[message.Channel.Id] = true;
+                    }
+                    Logger.Verbose("Sending message: {0}", sendMsg);
+                    //将arg[1]与之后的参数合并为一个字符串
+                    DiscordBridgePlugin.Plugin.SendMessage(sendMsg);
+                    return;
+                }
+
+                if (args[0] == this.plugin.Config.DiscordBotPrefix + "setsendkind" && await EnsureOwner(message.Author, message.Channel))
+                {
+                    // Are there parameters?
+                    if (args.Length == 1)
+                    {
+                        await SendGenericEmbed(message.Channel,
+                            $"要使用此功能，你需要指定聊天类型。\n使用 ``{this.plugin.Config.DiscordBotPrefix}help`` 命令获取更多信息。",
+                            "Error", EmbedColorError);
+
+                        return;
+                    }
+                    XivChatType xivChatType = XivChatTypeExtensions.GetBySlug(args[1]);
+                    if (xivChatType == XivChatType.None)
+                    {
+                        await SendGenericEmbed(message.Channel,
+                            $"无法找到聊天类型。\n使用 ``{this.plugin.Config.DiscordBotPrefix}help`` 命令获取更多信息。",
+                            "Error", EmbedColorError);
+
+                        return;
+                    }
+                    string tellTargetStr = "";
+                    if (xivChatType == XivChatType.TellOutgoing)
+                    {
+                        if (args.Length < 3)
+                        {
+                            await SendGenericEmbed(message.Channel,
+                                $"对于tell，你需要指定私聊对象。\n例如`{this.plugin.Config.DiscordBotPrefix}setsendkind tell aaa@柔风海湾`。",
+                                "Error", EmbedColorError);
+                            return;
+                        }
+                        tellTargetStr = args[2];
+                    }
+                    this.plugin.Config.ChannelDefaultKindConfigs[message.Channel.Id] = new DefaultMsgKindConfig(xivChatType, tellTargetStr);
+                    this.plugin.Config.Save();
+                    await SendGenericEmbed(message.Channel,
+                        $"OK! 当前Discord频道将被设置为默认使用 **{XivChatTypeExtensions.GetBySlug(args[1]).GetFancyName()}** 聊天类型发送消息。\n"
+                        + $"当你不想使用默认聊天类型时，你可以使用例如 ``{this.plugin.Config.DiscordBotPrefix}send /say msg`` 来发送消息。",
+                        "默认消息类型", EmbedColorFine);
+                    return;
+                }
+
                 if (args[0] == this.plugin.Config.DiscordBotPrefix + "setchannel" &&
                     await EnsureOwner(message.Author, message.Channel))
                 {
@@ -205,7 +287,7 @@ namespace Dalamud.DiscordBridge
                     if (args.Length == 1)
                     {
                         await SendGenericEmbed(message.Channel,
-                            $"You need to specify some chat kinds to use.\nCheck the ``{this.plugin.Config.DiscordBotPrefix}help`` command for more information.",
+                            $"要使用此功能，你需要指定对话类型。\n使用 ``{this.plugin.Config.DiscordBotPrefix}help`` 命令获取更多信息。",
                             "Error", EmbedColorError);
 
                         return;
@@ -218,7 +300,7 @@ namespace Dalamud.DiscordBridge
                         .Any(x =>
                         XivChatTypeExtensions.TypeInfoDict.All(y => y.Value.Slug != x) && x != "any"))
                     {
-                        Logger.Verbose("Could not find kinds");
+                        Logger.Verbose("无法找到类型");
                         await SendGenericEmbed(message.Channel,
                             $"One or more of the chat kinds you specified could not be found.\nCheck the ``{this.plugin.Config.DiscordBotPrefix}help`` command for more information.",
                             "Error", EmbedColorError);
@@ -928,43 +1010,52 @@ namespace Dalamud.DiscordBridge
 
                     var builder = new EmbedBuilder()
                         .WithTitle("Discord Bridge Help")
-                        .WithDescription("You can use the following commands to set up the Discord bridge.")
+                        .WithDescription("你可以使用以下命令来配置Discord bridge。")
                         .WithColor(new Color(EmbedColorFine))
-                        .AddField($"{this.plugin.Config.DiscordBotPrefix}setchannel", "Select, which kinds of chat should arrive in this channel.\n" +
-                                                 $"Format: ``{this.plugin.Config.DiscordBotPrefix}setchannel <kind1,kind2,...>``\n\n" +
-                                                 $"See [this link for a list of all available chat kinds]({Constant.KindListLink}) or type ``any`` to enable it for all regular chat messages.")
+                        .AddField($"{this.plugin.Config.DiscordBotPrefix}setchannel", "选择哪些聊天类型的消息会被发送至当前Discord频道。\n" +
+                                                 $"格式: ``{this.plugin.Config.DiscordBotPrefix}setchannel <kind1,kind2,...>``\n\n" +
+                                                 $"[点击查看全部聊天类型]({Constant.KindListLink}) 或输入 ``any`` 将会发送全部聊天类型的内容。")
                         //$"The following chat kinds are available:\n```all - All regular chat\n{XivChatTypeExtensions.TypeInfoDict.Select(x => $"{x.Value.Slug} - {x.Value.FancyName}").Aggregate((x, y) => x + "\n" + y)}```")
-                        .AddField($"{this.plugin.Config.DiscordBotPrefix}unsetchannel", "Works like the previous command, but removes kinds of chat from the list of kinds that are sent to this channel.")
-                        .AddField($"{this.plugin.Config.DiscordBotPrefix}listchannel", "List all chat kinds that are sent to this channel.")
-                        .AddField($"{this.plugin.Config.DiscordBotPrefix}toggledefaultnameavatar","Enable or disable sending webhook messages using your configured bot's name and the default bot avatar.\n**WARNING:**This should be combined with enabling the `togglesender` function or you will be removing any distinction between different player messages.")
-                        .AddField($"{this.plugin.Config.DiscordBotPrefix}toggledf", "Enable or disable sending duty finder updates to this channel.")
-                        .AddField($"{this.plugin.Config.DiscordBotPrefix}toggleembed", "Enable or disable sending messages as Webhooks (default) or Embeds (Fallback mode)")
-                        .AddField($"{this.plugin.Config.DiscordBotPrefix}togglesender", "Enable or disable sending messages with the sender name in the message.")
-                        .AddField($"{this.plugin.Config.DiscordBotPrefix}setduplicatems", "Set time in milliseconds that the bot will check to see if any past messages were the same. Default is 0 ms.")
-                        .AddField($"{this.plugin.Config.DiscordBotPrefix}setprefix", "Set a prefix for chat kinds. "
-                            + $"This can be an emoji or a string that will be prepended to every chat message that will arrive with this chat kind. "
-                            + $"You can also set it to `none` if you want to remove it.\n" 
-                            + $"Format: ``{this.plugin.Config.DiscordBotPrefix}setprefix <kind1,kind2,...> <prefix>``")
-                        .AddField($"{this.plugin.Config.DiscordBotPrefix}setcfprefix", "Set a prefix for duty finder posts. "
-                            + $"You can also set it to `none` if you want to remove it.\n" 
-                            + $"Format: ``{this.plugin.Config.DiscordBotPrefix}setcfprefix <prefix>``")
-                        .AddField($"{this.plugin.Config.DiscordBotPrefix}setchattypename ", "Set custom text for chat kinds. "
-                            + $"This can be an emoji or a string that will replace the short name of a chat kind for every chat message that will arrive with this chat kind. "
-                            + $"You can also set it to `none` if you want to remove it.\n" 
-                            + $"Format: ``{this.plugin.Config.DiscordBotPrefix}setchattypename  <kind1,kind2,...> <custom text>``")
-                        .AddField($"{this.plugin.Config.DiscordBotPrefix}unsetprefix", "Remove prefix set for a chat kind. \n"
-                            + $"Format: ``{this.plugin.Config.DiscordBotPrefix}unsetprefix <kind>``")
-                        .AddField($"{this.plugin.Config.DiscordBotPrefix}unsetchattypename", "Remove custom name for a chat kind. \n"
-                            + $"Format: ``{this.plugin.Config.DiscordBotPrefix}unsetchattypename <kind>``")
-                        .AddField($"{this.plugin.Config.DiscordBotPrefix}setavatar <kind> <url>", "Set custom fallback avator for a chat kind. "
-                            + "Use ``default`` as the fallback for any unconfigured overrides.\n"
-                            + "__NOTE__: Upload the icon to Discord first if you don't have a URL already.\n"
-                            + $"Format: ``{this.plugin.Config.DiscordBotPrefix}setavatar <kind> <url>``")
-                        .AddField($"{this.plugin.Config.DiscordBotPrefix}unsetavatar <kind>", "Unset custom fallback avator for a chat kind. "
-                            + "Use ``default`` to reset the fallback for any unconfigured overrides.\n"
-                            + $"Format: ``{this.plugin.Config.DiscordBotPrefix}unsetavatar <kind>``")
-                        .AddField("Need more help?",
-                            $"You can [read the full step-by-step guide]({Constant.HelpLink}) or [join our Discord server]({Constant.DiscordJoinLink}) to ask for help.")
+                        .AddField($"{this.plugin.Config.DiscordBotPrefix}unsetchannel", "就像上一个命令, 但是移除指定的聊天类型。")
+                        .AddField($"{this.plugin.Config.DiscordBotPrefix}listchannel", "显示会发送到当前Discord频道的聊天类型列表。")
+                        .AddField($"{this.plugin.Config.DiscordBotPrefix}send", "发送消息到游戏内。\n**警告**:它操作起来和游戏内类似，你极有可能发送到你不想发送的消息类型，而且你很难直观的看到自己当前所处的类型。\n为了防止这个问题，你可以使用`setsendkind`来配置一个默认消息发送类型。\n"
+                        + $"使用宏时，这里遵循和游戏完全一致的交互逻辑，比如你可以`send /tell aaa@柔风海湾`，然后使用`send 测试消息`来发送私聊给`aaa@柔风海湾`。\n"
+                        + $"**注意**，以上宏的使用和`setsendkind`默认消息发送类型的设置相互冲突，默认消息类型会覆盖使用宏指定的频道。")
+                        .AddField($"{this.plugin.Config.DiscordBotPrefix}setsendkind", "为当前Discord频道设置一个默认的消息发送类型。"
+                            + $"这将会为你在Discord发到游戏中的每一条消息加上消息类型宏，例如，当你设置默认发送类型为p时，使用`send 测试消息`时，会自动转换为`send /p 测试消息`。\n"
+                            + $"如果你不想向默认类型发送消息，你仍然可以直接使用例如`send /p 测试消息`来发送消息。\n"
+                            + $"如果你想使用私聊作为类型，可以使用`setsendkind tell aa@柔风海湾`。\n"
+                            + $"你也可以设置为 `none` 如果你想要移除这个设置。\n"
+                            + $"格式: ``{this.plugin.Config.DiscordBotPrefix}setsendkind <kind>``")
+                        .AddField($"{this.plugin.Config.DiscordBotPrefix}toggledefaultnameavatar", "开启或关闭使用你配置的机器人名字和默认的机器人头像来发送webhook消息。\n**警告:**这应该与`togglesender`功能相结合，否则你无法区分不同玩家的消息。")
+                        .AddField($"{this.plugin.Config.DiscordBotPrefix}toggledf", "开启或关闭发送任务搜索器的情况到当前Discord频道。")
+                        .AddField($"{this.plugin.Config.DiscordBotPrefix}toggleembed", "开启或关闭使用Webhooks (默认)或Embeds (备选方案)方式发送消息。")
+                        .AddField($"{this.plugin.Config.DiscordBotPrefix}togglesender", "开启或关闭向Discord频道发送聊天内容时在消息中包含发送者名称。")
+                        .AddField($"{this.plugin.Config.DiscordBotPrefix}setduplicatems", "设置机器人检查过去的消息是否相同的时间（以毫秒为单位）。默认值为 0 毫秒。")
+                        .AddField($"{this.plugin.Config.DiscordBotPrefix}setprefix", "设置聊天类型的前缀。 "
+                            + $"可以是一个表情符号或一个字符串，它将被添加到对应聊天类型收到的每个聊天消息的前面。 "
+                            + $"你也可以设置为 `none` 如果你想要移除它。\n" 
+                            + $"格式: ``{this.plugin.Config.DiscordBotPrefix}setprefix <kind1,kind2,...> <prefix>``")
+                        .AddField($"{this.plugin.Config.DiscordBotPrefix}setcfprefix", "设置任务搜索器消息的前缀。"
+                            + $"你也可以设置为 `none` 如果你想要移除它。\n" 
+                            + $"格式: ``{this.plugin.Config.DiscordBotPrefix}setcfprefix <prefix>``")
+                        .AddField($"{this.plugin.Config.DiscordBotPrefix}setchattypename ", "为聊天类型设置自定义文本。"
+                            + $"可以是一个表情符号或一个字符串，它将替换此聊天类型收到的每个聊天消息的聊天类型的缩写。 "
+                            + $"你也可以设置为 `none` 如果你想要移除它。\n" 
+                            + $"格式: ``{this.plugin.Config.DiscordBotPrefix}setchattypename  <kind1,kind2,...> <custom text>``")
+                        .AddField($"{this.plugin.Config.DiscordBotPrefix}unsetprefix", "为指定聊天类型移除前缀设置。 \n"
+                            + $"格式: ``{this.plugin.Config.DiscordBotPrefix}unsetprefix <kind>``")
+                        .AddField($"{this.plugin.Config.DiscordBotPrefix}unsetchattypename", "为指定聊天类型移除自定义文本设置。 \n"
+                            + $"格式: ``{this.plugin.Config.DiscordBotPrefix}unsetchattypename <kind>``")
+                        .AddField($"{this.plugin.Config.DiscordBotPrefix}setavatar <kind> <url>", "为指定聊天类型设置备用头像。 "
+                            + "对于未配置的覆写，将会使用 ``default`` 作为备用设置。\n"
+                            + "__注意__: 如果你还没有URL，请先将图标上传到Discord。\n"
+                            + $"格式: ``{this.plugin.Config.DiscordBotPrefix}setavatar <kind> <url>``")
+                        .AddField($"{this.plugin.Config.DiscordBotPrefix}unsetavatar <kind>", "为指定聊天类型移除备用头像设置。 "
+                            + "对于未配置的覆写，将会使用 ``default`` 来重置备用设置。\n"
+                            + $"格式: ``{this.plugin.Config.DiscordBotPrefix}unsetavatar <kind>``")
+                        .AddField("需要更多帮助?",
+                            $"你可以 [阅读这篇详细教程]({Constant.HelpLink}) 或 [加入我们的Discord Server]({Constant.DiscordJoinLink}) 来寻求帮助。")
                         .WithFooter(footer =>
                         {
                             footer

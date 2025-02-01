@@ -3,6 +3,8 @@ using System.Threading.Tasks;
 using Dalamud.DiscordBridge.API;
 using Dalamud.DiscordBridge.Attributes;
 using Dalamud.DiscordBridge.Model;
+using Dalamud.DiscordBridge.XivApi;
+using Dalamud.Game;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
@@ -16,6 +18,9 @@ namespace Dalamud.DiscordBridge
     public class DiscordBridgePlugin : IDalamudPlugin
     {
         public static DiscordBridgePlugin Plugin { get; private set; }
+        private ChatSender chatSender;
+        private IFramework framework;
+
         private readonly PluginCommandManager<DiscordBridgePlugin> commandManager;
         private readonly PluginUI ui;
 
@@ -29,7 +34,7 @@ namespace Dalamud.DiscordBridge
         private bool startedFromConstructor = false;
 
 
-        public DiscordBridgePlugin(IDalamudPluginInterface pluginInterface, ICommandManager command)
+        public DiscordBridgePlugin(IDalamudPluginInterface pluginInterface, ICommandManager command, ISigScanner sigScanner)
         {
             Plugin = this;
             pluginInterface.Create<Service>();
@@ -63,7 +68,7 @@ namespace Dalamud.DiscordBridge
                 }
             }
 
-            
+            chatSender = new ChatSender(sigScanner);
             this.DiscordBridgeProvider = new DiscordBridgeProvider(pluginInterface, new DiscordBridgeAPI(this));
             this.Discord = new DiscordHandler(this);
             // Task t = this.Discord.Start(); // bot won't start if we just have this
@@ -87,7 +92,9 @@ namespace Dalamud.DiscordBridge
             Service.State.Login += OnLoginEvent;
             Service.State.Logout += OnLogoutEvent;
             Service.Framework.Update += OnFrameworkUpdate;
-            
+            this.framework = Service.Framework;
+
+
 
             this.commandManager = new PluginCommandManager<DiscordBridgePlugin>(this, command);
 
@@ -166,6 +173,11 @@ namespace Dalamud.DiscordBridge
         private void OpenConfigUi()
         {
             this.ui.Show();
+        }
+
+        public async void SendMessage(string message)
+        {
+            await framework.RunOnFrameworkThread(() => chatSender.SendMessage(message));
         }
 
         

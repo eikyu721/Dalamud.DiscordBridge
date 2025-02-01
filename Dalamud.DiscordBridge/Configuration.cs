@@ -23,6 +23,8 @@ namespace Dalamud.DiscordBridge
         public Dictionary<XivChatType, string> ChatTypeAvatarURL { get; set; } = [];
 
         public Dictionary<ulong, DiscordChannelConfig> ChannelConfigs { get; set; } = [];
+        public Dictionary<ulong, DefaultMsgKindConfig> ChannelDefaultKindConfigs { get; set; } = [];
+        public Dictionary<ulong, bool> ChannelDefaultKindConfigNotice { get; set; } = [];
         public Dictionary<XivChatType, string> PrefixConfigs { get; set; } = [];
 
         public Dictionary<XivChatType, string> CustomSlugsConfigs { get; set; } = [];
